@@ -2,21 +2,62 @@ package store
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // 缓存的时钟
 // time.Now() 是系统调用，在缓存这种每秒百万级调用的热路径上，它是个瓶颈
-var clock=time.Now().UnixNano()
+var clock = time.Now().Unix()
 
-func
+// 启动协程，每一秒调用一次time.Now矫正计时
+func init() {
+	go func() {
+		for {
+			atomic.StoreInt64(&clock, time.Now().UnixNano()) // 每秒校准一次
+			for i := 0; i < 9; i++ {
+				time.Sleep(100 * time.Millisecond)
+				atomic.AddInt64(&clock, int64(100*time.Millisecond))
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}()
+}
+
+// hashBKRD 实现 BKDR 哈希算法，将字符串映射为 int32 哈希值。
+// hash * 131 = hash * (128 + 2 + 1) = hash << 7  +  hash << 1  +  hash
+func hashBKRD(s string) (hash int32) {
+	for i := 0; i < len(s); i++ {
+		hash = hash*131 + int32(s[i])
+	}
+
+	return hash
+}
+
+// 将最高位的1通过移位变成连续的1
+func maskOfNextPowOf2(cap uint16) uint16 {
+	if cap > 0 && cap&(cap-1) == 0 {
+		return cap - 1
+	}
+
+	// 通过多次右移和按位或操作，将二进制中最高的 1 位右边的所有位都填充为 1
+	cap |= cap >> 1
+	cap |= cap >> 2
+	cap |= cap >> 4
+
+	return cap | (cap >> 8)
+}
+
+func now() int64 {
+	return atomic.LoadInt64(&clock)
+}
 
 type lru2Store struct {
-	locks       []sync.Mutex
-	caches      [][2]*cache
-	onEvicted   func(key string, value Value)
+	locks         []sync.Mutex
+	caches        [][2]*cache
+	onEvicted     func(key string, value Value)
 	cleanupTicker *time.Ticker
-	mask        int32 // 哈希掩码，将key映射到分片
+	mask          int32 // 哈希掩码，将key映射到分片
 }
 
 // newLRU2Cache 创建一个 LRU-2 缓存实例。
@@ -38,11 +79,11 @@ func newLRU2Cache(opts Options) *lru2Store {
 
 	mask := maskOfNextPowOf2(opts.BucketCount)
 	s := &lru2Store{
-		locks:       make([]sync.Mutex, mask+1),
-		caches:      make([][2]*cache, mask+1),
-		onEvicted:   opts.OnEvicted,
+		locks:         make([]sync.Mutex, mask+1),
+		caches:        make([][2]*cache, mask+1),
+		onEvicted:     opts.OnEvicted,
 		cleanupTicker: time.NewTicker(opts.CleanupInterval),
-		mask:        int32(mask),
+		mask:          int32(mask),
 	}
 
 	for i := range s.caches {
@@ -57,23 +98,141 @@ func newLRU2Cache(opts Options) *lru2Store {
 	return s
 }
 
-// 将最高位的1通过移位变成连续的1
-func maskOfNextPowOf2(cap uint16) uint16 {
-	if cap > 0 && cap&(cap-1) == 0 {
-		return cap - 1
+// Clear 清空所有分片的两级缓存，实现 Store 接口。
+func (s *lru2Store) Clear() {
+	var keys []string
+
+	for i := range s.caches {
+		s.locks[i].Lock()
+
+		s.caches[i][0].walk(func(key string, value Value, expireAt int64) bool {
+			keys = append(keys, key)
+			return true
+		})
+		s.caches[i][1].walk(func(key string, value Value, expireAt int64) bool {
+			// 检查键是否已经收集（避免重复）
+			for _, k := range keys {
+				if key == k {
+					return true
+				}
+			}
+			keys = append(keys, key)
+			return true
+		})
+
+		s.locks[i].Unlock()
 	}
 
-	// 通过多次右移和按位或操作，将二进制中最高的 1 位右边的所有位都填充为 1
-	cap |= cap >> 1
-	cap |= cap >> 2
-	cap |= cap >> 4
-
-	return cap | (cap >> 8)
+	for _, key := range keys {
+		s.Delete(key)
+	}
 }
 
-func (l*lru2Store)cleanupLoop(){
-	for range l.cleanupTicker.C{
-		currentTime:=
+func (l *lru2Store) Delete(key string) bool {
+	idx := hashBKRD(key) & l.mask
+	l.locks[idx].Lock()
+	defer l.locks[idx].Unlock()
+
+	return l.delete(key, idx)
+}
+
+func (l *lru2Store) Get(key string) (Value, bool) {
+	idx := hashBKRD(key) & l.mask
+
+	currentTime := now()
+	l.locks[idx].Lock()
+	defer l.locks[idx].Unlock()
+
+	n1, ok, expTime := l.caches[idx][0].delete(key)
+	if ok {
+		// 一级缓存中已经存在
+		if expTime > 0 && currentTime > n1.expireAt {
+			// 过期
+			l.delete(key, idx)
+			return nil, false
+		}
+
+		// 升级到二级缓存
+		l.caches[idx][1].put(key, n1.value, expTime, l.onEvicted)
+		return n1.value, true
+	}
+
+	// 查找二级缓存
+	n2, ok := l.caches[idx][1].get(key)
+	if ok && n2 != nil {
+		if currentTime < n2.expireAt {
+			return n2.value, true
+		} else {
+			l.delete(key, idx)
+			return nil, false
+		}
+
+	}
+	return nil, false
+
+}
+
+func (l *lru2Store) Set(key string, value Value) bool {
+	return l.SetWithExpiration(key, value, 9999999999999999)
+}
+
+func (l *lru2Store) SetWithExpiration(key string, value Value, expiration time.Duration) bool {
+	expireAt := int64(0)
+	if expiration > 0 {
+		// now() 返回纳秒时间戳，确保 expiration 也是纳秒单位
+		expireAt = now() + int64(expiration.Nanoseconds())
+	}
+	idx := hashBKRD(key) & l.mask
+
+	l.locks[idx].Lock()
+	defer l.locks[idx].Unlock()
+
+	return l.caches[idx][0].put(key, value, expireAt, l.onEvicted)
+}
+
+func (l *lru2Store) delete(key string, idx int32) bool {
+	n1, s1, _ := l.caches[idx][0].delete(key)
+	n2, s2, _ := l.caches[idx][1].delete(key)
+	deleted := s1 || s2
+
+	if deleted && l.onEvicted != nil {
+		if n1 != nil && n1.value != nil {
+			l.onEvicted(key, n1.value)
+		} else if n2 != nil && n2.value != nil {
+			l.onEvicted(key, n2.value)
+		}
+	}
+	return deleted
+}
+
+func (l *lru2Store) cleanupLoop() {
+	for range l.cleanupTicker.C {
+		currentTime := now()
+
+		for i := range l.caches {
+			l.locks[i].Lock()
+
+			// 检查并清理过期项目
+			var expireKeys []string
+
+			l.caches[i][0].walk(func(key string, value Value, expTime int64) bool {
+				if expTime > 0 && expTime < currentTime {
+					expireKeys = append(expireKeys, key)
+				}
+				return true
+			})
+			l.caches[i][1].walk(func(key string, value Value, expTime int64) bool {
+				if expTime > 0 && expTime < currentTime {
+					expireKeys = append(expireKeys, key)
+				}
+				return true
+			})
+
+			for _, key := range expireKeys {
+				l.delete(key, int32(i))
+			}
+			l.locks[i].Unlock()
+		}
 	}
 }
 
@@ -142,14 +301,14 @@ func (c *cache) adjust(idx uint16, isHead bool) {
 
 // delete 逻辑删除一个缓存项：将 expireAt 置 0 标记为已删除，并移到链表尾部等待被覆盖。
 // 返回节点指针、状态码（1=成功, 0=未找到或已删除）和原始过期时间。
-func (c *cache) delete(key string) (*node, int, int64) {
+func (c *cache) delete(key string) (*node, bool, int64) {
 	if idx, exist := c.hmap[key]; exist {
 		e := c.m[idx].expireAt
 		c.m[idx].expireAt = 0
 		c.adjust(idx, false)
-		return &c.m[idx], 1, e
+		return &c.m[idx], true, e
 	}
-	return nil, 0, 0
+	return nil, false, 0
 }
 
 // key 不存在则新增（返回 false）。当数组已满时，覆盖 LRU 尾部节点。
@@ -168,7 +327,7 @@ func (c *cache) put(key string, value Value, expireAt int64, onEvicted func(stri
 		// 缓存已满
 		tail := c.dlnk[0][0]
 		n := &c.m[tail]
-		if onEvicted != nil {
+		if onEvicted != nil && n.expireAt > 0 {
 			onEvicted(n.key, n.value)
 		}
 
@@ -197,7 +356,7 @@ func (c *cache) put(key string, value Value, expireAt int64, onEvicted func(stri
 }
 
 // 遍历有效的数据
-func (c *cache) walker(f func(key string, value Value, expTime int64) bool) {
+func (c *cache) walk(f func(key string, value Value, expTime int64) bool) {
 	for i := c.dlnk[0][1]; i != 0; i = c.dlnk[i][1] {
 		if val := c.m[i]; val.expireAt > 0 && !f(val.key, val.value, val.expireAt) {
 			return

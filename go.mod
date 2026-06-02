@@ -1,3 +1,3 @@
-module cache-copy
+module LCache
 
 go 1.26.1
