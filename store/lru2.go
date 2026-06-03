@@ -15,7 +15,7 @@ func init() {
 	go func() {
 		for {
 			atomic.StoreInt64(&clock, time.Now().UnixNano()) // 每秒校准一次
-			for i := 0; i < 9; i++ {
+			for range 9 {
 				time.Sleep(100 * time.Millisecond)
 				atomic.AddInt64(&clock, int64(100*time.Millisecond))
 			}
@@ -146,7 +146,7 @@ func (l *lru2Store) Get(key string) (Value, bool) {
 	n1, ok, expTime := l.caches[idx][0].delete(key)
 	if ok {
 		// 一级缓存中已经存在
-		if expTime > 0 && currentTime > n1.expireAt {
+		if expTime > 0 && currentTime > expTime {
 			// 过期
 			l.delete(key, idx)
 			return nil, false
@@ -173,7 +173,7 @@ func (l *lru2Store) Get(key string) (Value, bool) {
 }
 
 func (l *lru2Store) Set(key string, value Value) bool {
-	return l.SetWithExpiration(key, value, 9999999999999999)
+	return l.SetWithExpiration(key, value, 999999999999999)
 }
 
 func (l *lru2Store) SetWithExpiration(key string, value Value, expiration time.Duration) bool {
@@ -233,6 +233,33 @@ func (l *lru2Store) cleanupLoop() {
 			}
 			l.locks[i].Unlock()
 		}
+	}
+}
+
+func (l *lru2Store) Len() int {
+	count := 0
+
+	for i := range l.caches {
+		l.locks[i].Lock()
+
+		l.caches[i][0].walk(func(key string, value Value, expireAt int64) bool {
+			count++
+			return true
+		})
+		l.caches[i][1].walk(func(key string, value Value, expireAt int64) bool {
+			count++
+			return true
+		})
+
+		l.locks[i].Unlock()
+	}
+
+	return count
+}
+
+func (l *lru2Store) Close() {
+	if l.cleanupTicker != nil {
+		l.cleanupTicker.Stop()
 	}
 }
 
@@ -302,7 +329,7 @@ func (c *cache) adjust(idx uint16, isHead bool) {
 // delete 逻辑删除一个缓存项：将 expireAt 置 0 标记为已删除，并移到链表尾部等待被覆盖。
 // 返回节点指针、状态码（1=成功, 0=未找到或已删除）和原始过期时间。
 func (c *cache) delete(key string) (*node, bool, int64) {
-	if idx, exist := c.hmap[key]; exist {
+	if idx, exist := c.hmap[key]; exist && c.m[idx].expireAt > 0 {
 		e := c.m[idx].expireAt
 		c.m[idx].expireAt = 0
 		c.adjust(idx, false)
@@ -364,11 +391,11 @@ func (c *cache) walk(f func(key string, value Value, expTime int64) bool) {
 	}
 }
 
-func (c *cache) testOrder() []node {
+func (c *cache) testOrder() []Value {
 	pos := c.dlnk[0][1]
-	slice := make([]node, 0, c.last+1)
+	slice := make([]Value, 0, c.last+1)
 	for pos != 0 {
-		slice = append(slice, c.m[pos])
+		slice = append(slice, c.m[pos].value)
 		pos = c.dlnk[pos][1]
 	}
 	return slice

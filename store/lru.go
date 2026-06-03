@@ -24,7 +24,7 @@ type lruCache struct {
 	closeCh         chan struct{}
 }
 
-func newlruCache(opt Options) *lruCache {
+func newLRUCache(opt Options) *lruCache {
 	if opt.CleanupInterval <= 0 {
 		opt.CleanupInterval = time.Minute
 	}
@@ -135,16 +135,16 @@ func (l *lruCache) moveToFront(elem *list.Element) {
 	l.list.MoveBefore(elem, l.list.Front())
 }
 
-func (l *lruCache) Set(key string, value Value) error {
+func (l *lruCache) Set(key string, value Value) bool {
 	return l.SetWithExpiration(key, value, 0)
 }
 
-func (l *lruCache) SetWithExpiration(key string, value Value, expiration time.Duration) error {
+func (l *lruCache) SetWithExpiration(key string, value Value, expiration time.Duration) bool {
 
 	// 值为空，删除
 	if value == nil {
 		_ = l.Delete(key)
-		return nil
+		return true
 	}
 
 	newEntry := &lruEntry{
@@ -168,14 +168,35 @@ func (l *lruCache) SetWithExpiration(key string, value Value, expiration time.Du
 		elem.Value = newEntry
 		l.usedBytes += int64(newEntry.Value.Len() - oldEntry.Value.Len())
 		l.moveToFront(elem)
-		return nil
+		return true
 	}
 
 	l.elems[key] = l.list.PushFront(newEntry)
 	l.usedBytes += int64(newEntry.Value.Len() + len(newEntry.Key))
 	l.evict()
 
-	return nil
+	return true
+}
+
+func (l *lruCache) Len() int {
+	return l.list.Len()
+}
+
+func (l *lruCache) Clear() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.onEvicted != nil {
+		for _, elem := range l.elems {
+			entry := elem.Value.(*lruEntry)
+			l.onEvicted(entry.Key, entry.Value)
+		}
+	}
+
+	l.list.Init()
+	l.elems = make(map[string]*list.Element)
+	l.expires = make(map[string]time.Time)
+
 }
 
 func (l *lruCache) Close() {

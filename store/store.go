@@ -5,13 +5,31 @@ import "time"
 // Store 缓存接口
 type Store interface {
 	Get(key string) (Value, bool)
-	Set(key string, value Value) error
-	SetWithExpiration(key string, value Value, expiration time.Duration) error
+	Set(key string, value Value) bool
+	SetWithExpiration(key string, value Value, expiration time.Duration) bool
 	Delete(key string) bool
 	Clear()
 	Len() int
-	Capacity() int
 	Close()
+}
+
+type CacheType string
+
+const (
+	LRU  CacheType = "lru"
+	LRU2 CacheType = "lru2"
+)
+
+// NewStore 创建缓存存储实例
+func NewStore(cacheType CacheType, opts Options) Store {
+	switch cacheType {
+	case LRU2:
+		return newLRU2Cache(opts)
+	case LRU:
+		return newLRUCache(opts)
+	default:
+		return newLRUCache(opts)
+	}
 }
 
 type Value interface {
