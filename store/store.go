@@ -21,7 +21,7 @@ const (
 )
 
 // NewStore 创建缓存存储实例
-func NewStore(cacheType CacheType, opts Options) Store {
+func NewStore(cacheType CacheType, opts Option) Store {
 	switch cacheType {
 	case LRU2:
 		return newLRU2Cache(opts)
@@ -37,7 +37,7 @@ type Value interface {
 }
 
 // Options 通用缓存配置选项
-type Options struct {
+type Option struct {
 	MaxBytes        int64  // 最大的缓存字节数（用于 lru）
 	BucketCount     uint16 // 缓存的桶数量（用于 lru-2）
 	CapPerBucket    uint16 // 每个桶的容量（用于 lru-2）
@@ -46,8 +46,8 @@ type Options struct {
 	OnEvicted       func(key string, value Value)
 }
 
-func NewOptions() Options {
-	return Options{
+func NewOptions() Option {
+	return Option{
 		MaxBytes:        8192,
 		BucketCount:     16,
 		CapPerBucket:    512,

@@ -265,7 +265,7 @@ func TestCacheWalk(t *testing.T) {
 
 // newTestStore 创建测试用的 store 并等待时钟校准
 func newTestStore(buckets, capPer, l2cap uint16) *lru2Store {
-	return newLRU2Cache(Options{
+	return newLRU2Cache(Option{
 		BucketCount:     buckets,
 		CapPerBucket:    capPer,
 		Level2Cap:       l2cap,

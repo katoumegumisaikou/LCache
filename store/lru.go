@@ -24,7 +24,7 @@ type lruCache struct {
 	closeCh         chan struct{}
 }
 
-func newLRUCache(opt Options) *lruCache {
+func newLRUCache(opt Option) *lruCache {
 	if opt.CleanupInterval <= 0 {
 		opt.CleanupInterval = time.Minute
 	}

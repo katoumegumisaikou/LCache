@@ -1,4 +1,4 @@
-package cachecopy
+package consistenthash
 
 import "hash/crc32"
 

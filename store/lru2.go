@@ -63,7 +63,7 @@ type lru2Store struct {
 // newLRU2Cache 创建一个 LRU-2 缓存实例。
 // 根据 BucketCount 创建对应数量的分片，每个分片内包含一级和二级两个 cache。
 // 如果 CleanupInterval > 0，会启动后台协程定期清理过期项。
-func newLRU2Cache(opts Options) *lru2Store {
+func newLRU2Cache(opts Option) *lru2Store {
 	if opts.BucketCount == 0 {
 		opts.BucketCount = 16
 	}
