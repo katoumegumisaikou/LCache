@@ -1,4 +1,4 @@
-package cachecopy
+package lcache
 
 type ByteView struct {
 	b []byte
