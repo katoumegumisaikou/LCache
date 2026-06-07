@@ -3,9 +3,7 @@ package lcache
 import (
 	"context"
 	"fmt"
-	"time"
 
-	"go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -15,24 +13,14 @@ import (
 type Client struct {
 	addr    string
 	svcName string
-	etcdCli *clientv3.Client
 	conn    *grpc.ClientConn
 	grpcCli pb.PBClient
 }
 
 var _ Peer = (*Client)(nil)
 
-func NewClient(addr string, svcName string, etcdCli *clientv3.Client) (*Client, error) {
+func NewClient(addr string, svcName string) (*Client, error) {
 	var err error
-	if etcdCli == nil {
-		etcdCli, err = clientv3.New(clientv3.Config{
-			Endpoints:   []string{"localhost:2379"},
-			DialTimeout: 5 * time.Second,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to create etcd client: %v", err)
-		}
-	}
 
 	conn, err := grpc.NewClient(addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -47,7 +35,6 @@ func NewClient(addr string, svcName string, etcdCli *clientv3.Client) (*Client, 
 	client := &Client{
 		addr:    addr,
 		svcName: svcName,
-		etcdCli: etcdCli,
 		conn:    conn,
 		grpcCli: grpcClient,
 	}
