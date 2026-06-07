@@ -28,7 +28,7 @@ type Map struct {
 }
 
 // New 创建一致性哈希实例
-func New() *Map {
+func NewMap() *Map {
 	m := &Map{
 		config:       DefaultConfig,
 		hashMap:      make(map[int]string),

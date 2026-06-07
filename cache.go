@@ -1,23 +1,13 @@
 package lcache
 
 import (
-	"LCache/store"
 	"context"
-	"errors"
 	"fmt"
+	"lcache/store"
 	"sync"
 	"sync/atomic"
 	"time"
 )
-
-// ErrKeyRequired 键不能为空错误
-var ErrKeyRequired = errors.New("键为空")
-
-// ErrValueRequired 值不能为空错误
-var ErrValueRequired = errors.New("值为空")
-
-// ErrGroupClosed 组已关闭错误
-var ErrGroupClosed = errors.New("cache group 已关闭")
 
 // Cache 是对底层缓存存储的封装
 type Cache struct {
@@ -50,38 +40,6 @@ func DefaultCacheOptions() CacheOptions {
 		Level2Cap:    256,
 		CleanupTime:  time.Minute,
 		OnEvicted:    nil,
-	}
-}
-
-// GroupOption 定义Group的配置选项
-type GroupOption func(*Group)
-
-// WithExpiration 设置缓存过期时间
-func WithExpiration(d time.Duration) GroupOption {
-	return func(g *Group) {
-		g.expiration = d
-	}
-}
-
-// GetterFunc 函数类型实现 Getter 接口
-type GetterFunc func(ctx context.Context, key string) ([]byte, error)
-
-// Get 实现 Getter 接口
-func (f GetterFunc) Get(ctx context.Context, key string) ([]byte, error) {
-	return f(ctx, key)
-}
-
-// WithPeers 设置分布式节点
-func WithPeers(peers PeerPicker) GroupOption {
-	return func(g *Group) {
-		g.peers = peers
-	}
-}
-
-// WithCacheOptions 设置缓存选项
-func WithCacheOptions(opts CacheOptions) GroupOption {
-	return func(g *Group) {
-		g.mainCache = NewCache(opts)
 	}
 }
 
