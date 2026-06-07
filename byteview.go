@@ -1,3 +1,4 @@
+// byteview.go 定义 ByteView 这个结构体，对外返回只读视图
 package lcache
 
 type ByteView struct {

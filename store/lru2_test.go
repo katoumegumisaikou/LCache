@@ -1,3 +1,4 @@
+// lru2_test.go 测试 lru2 是否有 bug
 package store
 
 import (

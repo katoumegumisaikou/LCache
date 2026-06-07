@@ -1,3 +1,4 @@
+// store.go 屏蔽lru，lru2 这两个不同的接口体，向上提供统一的接口
 package store
 
 import "time"

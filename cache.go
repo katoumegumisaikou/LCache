@@ -1,3 +1,4 @@
+// cache.go 这个文件实现对本地缓存 store 封装，并对缓存命中的统计
 package lcache
 
 import (

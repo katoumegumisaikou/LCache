@@ -1,3 +1,4 @@
+// client.go 实现了 peer 的接口
 package lcache
 
 import (
