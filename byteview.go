@@ -18,3 +18,9 @@ func (b *ByteView) ByteSlice() []byte {
 func (b *ByteView) String() string {
 	return string(b.b)
 }
+
+func cloneBytes(bytes []byte) []byte {
+	b := make([]byte, len(bytes))
+	_ = copy(b, bytes)
+	return b
+}

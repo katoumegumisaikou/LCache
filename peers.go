@@ -251,5 +251,5 @@ func getLocalIP() (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("no valid local IP found")
+	return "", fmt.Errorf("没有有效的本地网络 IP ")
 }
