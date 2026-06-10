@@ -176,8 +176,11 @@ func (l *lru2Store) Get(key string) (Value, bool) {
 
 }
 
+// noExpiration 表示缓存项永不过期，expireAt 为 0 时即为永不过期
+const noExpiration = 0
+
 func (l *lru2Store) Set(key string, value Value) bool {
-	return l.SetWithExpiration(key, value, 999999999999999)
+		return l.SetWithExpiration(key, value, noExpiration)
 }
 
 func (l *lru2Store) SetWithExpiration(key string, value Value, expiration time.Duration) bool {

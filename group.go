@@ -134,9 +134,11 @@ func (g *Group) Get(ctx context.Context, key string) (ByteView, error) {
 	// 从本地缓存中获取
 	view, ok := g.mainCache.Get(ctx, key)
 	if ok {
+		atomic.AddInt64(&g.stats.localHits, 1)
 		return view, nil
 	}
 
+	atomic.AddInt64(&g.stats.localMisses, 1)
 	return g.load(ctx, key)
 }
 
@@ -145,7 +147,7 @@ func (g *Group) load(ctx context.Context, key string) (ByteView, error) {
 	// 使用 singleflight 确保并发请求只加载一次
 	startTime := time.Now()
 	viewi, err := g.loader.Do(key, func() (any, error) {
-		return g.loadData(ctx, key)
+	return g.loadData(ctx, key)
 	})
 	if err != nil {
 		return ByteView{}, err
@@ -186,10 +188,11 @@ func (g *Group) loadData(ctx context.Context, key string) (ByteView, error) {
 	// 对等节点加载失败,从数据源加载
 	bytes, err := g.getter.Get(ctx, key)
 	if err != nil {
-		return ByteView{}, fmt.Errorf("数据加载失败")
+			atomic.AddInt64(&g.stats.loaderErrors, 1)
+		return ByteView{}, fmt.Errorf("数据加载失败: %w", err)
 	}
 
-	atomic.AddInt64(&g.stats.localHits, 1)
+	atomic.AddInt64(&g.stats.loaderHits, 1)
 	return ByteView{b: cloneBytes(bytes)}, nil
 }
 
@@ -234,7 +237,7 @@ func (g *Group) Delete(ctx context.Context, key string) (bool, error) {
 	isPeerRequest := ctx.Value("from_peer") != nil
 	if !isPeerRequest && g.peers != nil {
 		// 如果不是从其他节点同步过来的请求，且启用了分布式模式，同步到其他节点
-		go g.syncToPeers(ctx, "delete", key, nil)
+		g.syncToPeers(ctx, "delete", key, nil)
 
 	}
 	return deleted, nil

@@ -23,7 +23,7 @@ func (g *Group) Do(key string, f func() (any, error)) (any, error) {
 			return nil, fmt.Errorf("类型错误")
 		}
 		c.wg.Wait()
-		return c.value, nil
+		return c.value, c.err
 	}
 
 	c := &call{}

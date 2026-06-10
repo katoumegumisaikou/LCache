@@ -26,11 +26,17 @@ func main() {
 	expiration := flag.Duration("expiration", 0, "cache item expiration, 0 means no expiration")
 	flag.Parse()
 
+	picker := lcache.NewClientPicker(*addr, lcache.WithServiceName(*service))
+	if picker == nil {
+		logrus.Warn("failed to create peer picker, running in standalone mode (no peer discovery)")
+	}
+
 	lcache.NewGroup(
 		*group,
 		*cacheBytes,
 		lcache.GetterFunc(loadFromSource),
 		lcache.WithEpiration(*expiration),
+		lcache.WithPeers(picker),
 	)
 
 	server, err := lcache.NewServer(

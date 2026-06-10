@@ -160,14 +160,12 @@ func (s *Server) Get(ctx context.Context, req *pb.Request) (*pb.ResponseForGet, 
 }
 
 // Set 实现缓存服务的 Set 方法。
+// 注意：不在 Server 层添加 from_peer 标记。syncToPeers 发出的请求会自带该标记，
+// 外部客户端请求不会带，group.Set 根据此标记决定是否继续同步到其他节点。
 func (s *Server) Set(ctx context.Context, req *pb.Request) (*pb.ResponseForGet, error) {
 	group := GetGroup(req.Group)
 	if group == nil {
 		return nil, fmt.Errorf("group %s not found", req.Group)
-	}
-
-	if ctx.Value("from_peer") == nil {
-		ctx = context.WithValue(ctx, "from_peer", true)
 	}
 
 	if _, err := group.Set(ctx, req.Key, req.Value, 0); err != nil {

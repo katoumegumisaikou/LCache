@@ -59,6 +59,15 @@ func WithServiceName(name string) PickerOption {
 
 func NewClientPicker(addr string, opts ...PickerOption) *ClientPicker {
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// 规范化 selfAddr：如果只指定了端口（如 ":8001"），解析为完整 IP:Port
+	// 以保证与 etcd 中注册的地址格式一致，确保 isSelf 判断正确
+	if addr != "" && addr[0] == ':' {
+		if ip, err := getLocalIP(); err == nil {
+			addr = ip + addr
+		}
+	}
+
 	picker := &ClientPicker{
 		selfAddr: addr,
 		consHash: consistenthash.NewMap(),
