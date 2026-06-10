@@ -93,7 +93,8 @@ func NewClientPicker(addr string, opts ...PickerOption) *ClientPicker {
 
 	// 启动服务发现
 	if err := picker.startServer(); err != nil {
-
+		logrus.Errorf("failed to start service discovery: %v", err)
+		return nil
 	}
 
 	return picker
@@ -189,6 +190,42 @@ func (c *ClientPicker) addNode(addr string) error {
 func (c *ClientPicker) remove(addr string) {
 	delete(c.clients, addr)
 	c.consHash.Remove(addr)
+}
+
+// PickPeer 根据一致性哈希选择对等节点
+func (p *ClientPicker) PickPeer(key string) (Peer, bool, bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if addr := p.consHash.Get(key); addr != "" {
+		if client, ok := p.clients[addr]; ok {
+			return client, true, addr == p.selfAddr
+		}
+	}
+	return nil, false, false
+}
+
+// Close 关闭所有资源
+func (p *ClientPicker) Close() error {
+	p.cancel()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	var errs []error
+	for addr, client := range p.clients {
+		if err := client.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to close client %s: %v", addr, err))
+		}
+	}
+
+	if err := p.etcdCli.Close(); err != nil {
+		errs = append(errs, fmt.Errorf("failed to close etcd client: %v", err))
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("errors while closing: %v", errs)
+	}
+	return nil
 }
 
 func (c *ClientPicker) Register(stopCh <-chan struct{}) error {
