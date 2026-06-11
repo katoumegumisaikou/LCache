@@ -176,16 +176,20 @@ func (l *lru2Store) Get(key string) (Value, bool) {
 
 }
 
-// noExpiration 表示缓存项永不过期，expireAt 为 0 时即为永不过期
-const noExpiration = 0
+// 底层 cache.delete 使用 expireAt == 0 作为"已逻辑删除"标记，
+// 因此 noExpiration 不能为 0，用一个足够大的值表示"永不过期"（约 290 年）。
+const noExpiration = 1<<63 - 1 // math.MaxInt64，视为无穷大
 
 func (l *lru2Store) Set(key string, value Value) bool {
-		return l.SetWithExpiration(key, value, noExpiration)
+	return l.SetWithExpiration(key, value, noExpiration)
 }
 
 func (l *lru2Store) SetWithExpiration(key string, value Value, expiration time.Duration) bool {
 	expireAt := int64(0)
-	if expiration > 0 {
+	if expiration == noExpiration {
+		// 永不过期：直接用无穷大值，跳过 now() + 加法避免溢出
+		expireAt = int64(noExpiration)
+	} else if expiration > 0 {
 		// now() 返回纳秒时间戳，确保 expiration 也是纳秒单位
 		expireAt = now() + int64(expiration.Nanoseconds())
 	}

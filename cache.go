@@ -111,7 +111,7 @@ func (c *Cache) Delete(ctx context.Context, key string) bool {
 	}
 
 	c.mu.Lock()
-	defer c.mu.RUnlock()
+	defer c.mu.Unlock()
 
 	return c.store.Delete(key)
 }
@@ -125,7 +125,7 @@ func (c *Cache) Get(ctx context.Context, key string) (ByteView, bool) {
 	defer c.mu.RUnlock()
 
 	b, exist := c.store.Get(key)
-	if exist {
+	if !exist {
 		atomic.AddInt64(&c.misses, 1)
 		return ByteView{}, false
 	}

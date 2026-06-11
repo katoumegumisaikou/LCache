@@ -139,6 +139,8 @@ func (g *Group) Get(ctx context.Context, key string) (ByteView, error) {
 	}
 
 	atomic.AddInt64(&g.stats.localMisses, 1)
+
+	// 尝试从其他节点获取
 	return g.load(ctx, key)
 }
 
@@ -147,7 +149,7 @@ func (g *Group) load(ctx context.Context, key string) (ByteView, error) {
 	// 使用 singleflight 确保并发请求只加载一次
 	startTime := time.Now()
 	viewi, err := g.loader.Do(key, func() (any, error) {
-	return g.loadData(ctx, key)
+		return g.loadData(ctx, key)
 	})
 	if err != nil {
 		return ByteView{}, err
@@ -188,7 +190,7 @@ func (g *Group) loadData(ctx context.Context, key string) (ByteView, error) {
 	// 对等节点加载失败,从数据源加载
 	bytes, err := g.getter.Get(ctx, key)
 	if err != nil {
-			atomic.AddInt64(&g.stats.loaderErrors, 1)
+		atomic.AddInt64(&g.stats.loaderErrors, 1)
 		return ByteView{}, fmt.Errorf("数据加载失败: %w", err)
 	}
 

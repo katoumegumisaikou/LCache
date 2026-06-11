@@ -16,21 +16,26 @@ type Group struct {
 }
 
 func (g *Group) Do(key string, f func() (any, error)) (any, error) {
+	c := &call{}
+	c.wg.Add(1)
 
-	if val, ok := g.m.Load(key); ok {
-		c, ok := val.(*call)
+	// LoadOrStore 原子地检查 key 是否存在，避免 check-then-set 竞态
+	actual, loaded := g.m.LoadOrStore(key, c)
+	if loaded {
+		// 已有其他 goroutine 在处理，等待其结果
+		c.wg.Done() // 抵消 Add(1)，因为我们自己的 call 没被用上
+		existing, ok := actual.(*call)
 		if !ok {
 			return nil, fmt.Errorf("类型错误")
 		}
-		c.wg.Wait()
-		return c.value, c.err
+		existing.wg.Wait()
+		return existing.value, existing.err
 	}
 
-	c := &call{}
-	c.wg.Add(1)
-	g.m.Store(key, c)
+	// 我们是第一个，执行函数
 	c.value, c.err = f()
 	c.wg.Done()
+	g.m.Delete(key)
 
 	return c.value, c.err
 }

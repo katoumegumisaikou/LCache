@@ -49,6 +49,10 @@ func (m *Map) Get(key string) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if len(m.keys) == 0 {
+		return ""
+	}
+
 	hash := int(m.config.HashFunc([]byte(key)))
 	// 二分查找
 	idx := sort.Search(len(m.keys), func(i int) bool {
